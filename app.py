@@ -1,48 +1,48 @@
 import streamlit as st
 import os
 
-from src.pdf_loader import load_pdf
-from src.text_splitter import split_documents
-from src.embeddings import create_vector_store
+from src.data_ingestion import create_knowledge_base
 from src.chatbot import get_llm
 
 
 # ---------------- Page Configuration ----------------
 
 st.set_page_config(
-    page_title="Multi PDF RAG Chatbot",
-    page_icon="",
+    page_title="Atomcamp AI Assistant",
+    page_icon="🤖",
     layout="wide"
 )
 
 
 # ---------------- Title ----------------
 
-st.title("Multi PDF RAG Assistant")
+st.title("🤖 Atomcamp AI Assistant")
 
 st.caption(
-    "Chat with your documents using Gemini, LangChain and FAISS"
+    "Chat with PDFs and Public Websites using Gemini + FAISS"
 )
 
 
-
-# ---------------- Session Memory ----------------
+# ---------------- Session State ----------------
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
+if "vector_store" not in st.session_state:
+    st.session_state.vector_store = None
+
+if "knowledge_base_created" not in st.session_state:
+    st.session_state.knowledge_base_created = False
 
 if "pdf_names" not in st.session_state:
     st.session_state.pdf_names = []
-
 
 
 # ---------------- Sidebar ----------------
 
 with st.sidebar:
 
-    st.header(" Document Panel")
-
+    st.header(" Knowledge Base")
 
     uploaded_files = st.file_uploader(
         "Upload PDFs",
@@ -50,89 +50,113 @@ with st.sidebar:
         accept_multiple_files=True
     )
 
-
     if uploaded_files:
 
         st.session_state.pdf_names = [
             file.name for file in uploaded_files
         ]
 
-
     if st.session_state.pdf_names:
 
-        st.subheader("Uploaded Files")
+        st.subheader("Uploaded PDFs")
 
         for pdf in st.session_state.pdf_names:
 
-            st.write(
-                f" {pdf}"
-            )
-
-
+            st.write(f"📄 {pdf}")
 
     st.divider()
 
+    website_url = st.text_input(
+        "🌐 Website URL",
+        placeholder="https://www.atomcamp.com"
+    )
 
-    if st.button(" Clear Chat"):
+    st.divider()
+
+    create_button = st.button(
+        "Create Knowledge Base",
+        use_container_width=True
+    )
+
+    st.divider()
+
+    if st.button(
+        "🗑 Clear Chat",
+        use_container_width=True
+    ):
 
         st.session_state.messages = []
 
         st.rerun()
 
+        # ---------------- Create Knowledge Base ----------------
 
+if create_button:
 
-# ---------------- Main App ----------------
+    # User must provide at least one source
+    if not uploaded_files and website_url.strip() == "":
 
+        st.error(
+            "Please upload at least one PDF or enter a website URL."
+        )
 
-if uploaded_files:
+    else:
 
+        os.makedirs("data", exist_ok=True)
 
-    with st.spinner(" Reading and processing documents..."):
+        pdf_paths = []
 
+        # Save PDFs (only if uploaded)
+        if uploaded_files:
 
-        all_documents = []
+            for uploaded_file in uploaded_files:
 
-
-        for uploaded_file in uploaded_files:
-
-
-            file_path = f"data/{uploaded_file.name}"
-
-
-            with open(file_path, "wb") as f:
-
-                f.write(
-                    uploaded_file.getbuffer()
+                file_path = os.path.join(
+                    "data",
+                    uploaded_file.name
                 )
 
+                with open(file_path, "wb") as f:
 
-            documents = load_pdf(file_path)
+                    f.write(
+                        uploaded_file.getbuffer()
+                    )
+
+                pdf_paths.append(file_path)
+
+        # Website list
+        website_urls = []
+
+        if website_url.strip():
+
+            website_urls.append(
+                website_url.strip()
+            )
+
+        with st.spinner("Creating Knowledge Base..."):
+
+            st.session_state.vector_store = create_knowledge_base(
+                pdf_paths,
+                website_urls
+            )
+
+            st.session_state.knowledge_base_created = True
+
+        st.success("Knowledge Base Created Successfully!")
 
 
-            all_documents.extend(documents)
 
+# ---------------- Chat Interface ----------------
 
+if st.session_state.knowledge_base_created:
 
-        chunks = split_documents(
-            all_documents
-        )
+    st.divider()
 
+    st.subheader("💬 Chat")
 
-        vector_store = create_vector_store(
-            chunks
-        )
-
-
-    st.success(
-        "Documents processed successfully!"
-    )
-
-
-
-    # Display previous messages
+    # Display Previous Messages
 
     for message in st.session_state.messages:
-
 
         with st.chat_message(
             message["role"]
@@ -143,23 +167,16 @@ if uploaded_files:
             )
 
 
-
-    # Chat Input
-
     question = st.chat_input(
-        "Ask something from your PDFs..."
+        "Ask anything..."
     )
-
 
 
     if question:
 
-
         with st.chat_message("user"):
 
             st.write(question)
-
-
 
         st.session_state.messages.append(
             {
@@ -169,116 +186,162 @@ if uploaded_files:
         )
 
 
-
-        # Retrieve documents
-
-        docs = vector_store.similarity_search(
+        docs = st.session_state.vector_store.similarity_search(
             question,
-            k=3
+            k=4
         )
 
 
-
         context = "\n\n".join(
+
             [
                 doc.page_content
                 for doc in docs
             ]
-        )
 
+        )
 
 
         history = "\n".join(
-            [
-                f"{m['role']}: {m['content']}"
-                for m in st.session_state.messages
-            ]
-        )
 
+            [
+
+                f"{msg['role']}: {msg['content']}"
+
+                for msg in st.session_state.messages
+
+            ]
+
+        )
 
 
         llm = get_llm()
 
 
+        prompt = f"""
 
-        response = llm.invoke(
-            f"""
-            You are an AI assistant.
+You are an AI Assistant.
 
-            Answer only using the PDF context.
+Answer ONLY using the provided context.
 
-            Conversation:
-            {history}
+If the answer is not available in the context, simply say:
 
-            Context:
-            {context}
+"I couldn't find that information in the uploaded PDFs or website."
 
-            Question:
-            {question}
-            """
-        )
+------------------------
+
+Conversation:
+
+{history}
+
+------------------------
+
+Context:
+
+{context}
+
+------------------------
+
+Question:
+
+{question}
+
+"""
+
+        with st.spinner("Thinking..."):
+
+            response = llm.invoke(
+                prompt
+            )
+
+            answer = response.content
 
 
-
-        answer = response.content
-
-
-
-        with st.chat_message(
-            "assistant"
-        ):
+        with st.chat_message("assistant"):
 
             st.write(answer)
 
 
-
         st.session_state.messages.append(
+
             {
                 "role": "assistant",
                 "content": answer
             }
+
         )
 
+                # ---------------- Sources ----------------
 
+        with st.expander("Sources Used"):
 
-        # Sources
+            sources = []
 
-        st.subheader(" Sources")
+            for doc in docs:
 
+                source = doc.metadata.get(
+                    "source",
+                    "Unknown Source"
+                )
 
-        sources = set()
+                page = doc.metadata.get(
+                    "page",
+                    None
+                )
 
+                if source.startswith("http"):
 
-        for doc in docs:
+                    text = f"{source}"
 
+                else:
 
-            source = doc.metadata.get(
-                "source"
-            )
+                    file_name = os.path.basename(source)
 
-            page = doc.metadata.get(
-                "page"
-            )
+                    if page is not None:
 
+                        text = f" {file_name} | Page {page + 1}"
 
-            file_name = os.path.basename(
-                source
-            )
+                    else:
 
+                        text = f"{file_name}"
 
-            sources.add(
-                f" {file_name} | Page {page+1}"
-            )
+                if text not in sources:
 
+                    sources.append(text)
 
-        for source in sources:
+            for source in sources:
 
-            st.write(source)
+                st.write(source)
 
-
+# ---------------- Welcome Screen ----------------
 
 else:
 
     st.info(
-        " Upload PDFs from the sidebar to start chatting."
+        """
+### Welcome to Atomcamp AI Assistant
+
+This assistant can answer questions from:
+
+-  Uploaded PDF documents
+-  Public website pages
+
+### How to use
+
+1. Upload one or more PDFs.
+2. Enter a public website URL.
+3. Click **Create Knowledge Base**.
+4. Start chatting!
+
+Your knowledge base will be saved locally using **FAISS**, so it loads much faster the next time.
+"""
     )
+
+
+# ---------------- Footer ----------------
+
+st.divider()
+
+st.caption(
+    "Built with using Streamlit, LangChain, FAISS, HuggingFace Embeddings and Gemini"
+)
