@@ -18,9 +18,9 @@ def create_knowledge_base(pdf_paths, website_urls):
 
     if vector_store_exists():
 
-        print("Loading existing Vector Database...")
+            import shutil
 
-        return load_vector_store()
+            shutil.rmtree("vector_db")
 
     print("Creating new Knowledge Base...")
 
