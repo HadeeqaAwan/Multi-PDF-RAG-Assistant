@@ -1,6 +1,7 @@
 venv/
+uploads/
+vector_db/
 __pycache__/
 .env
-data/
-vector_db/
-*.pyc
+.streamlit/
+.pytest_cache/
