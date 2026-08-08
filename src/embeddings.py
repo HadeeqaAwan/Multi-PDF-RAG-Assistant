@@ -1,8 +1,7 @@
 import os
 
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_community.vectorstores import FAISS
-
 
 # Folder where FAISS database will be saved
 VECTOR_DB_PATH = "vector_db"
@@ -10,8 +9,8 @@ VECTOR_DB_PATH = "vector_db"
 
 def get_embeddings():
 
-    return HuggingFaceEmbeddings(
-        model_name="all-MiniLM-L6-v2"
+    return GoogleGenerativeAIEmbeddings(
+        model="models/gemini-embedding-001"
     )
 
 
